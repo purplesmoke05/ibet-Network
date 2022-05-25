@@ -41,6 +41,9 @@ spec = {
     "sources": {
         f"{CONTRACT_NAME}.sol": {
             "urls": [f"{CONTRACT_PATH}/{CONTRACT_NAME}.sol"]
+        },
+        "Errors.sol": {
+            "urls": [f"{CONTRACT_PATH}/Errors.sol"]
         }
     },
     "settings": {

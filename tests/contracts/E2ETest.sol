@@ -17,7 +17,9 @@
 * SPDX-License-Identifier: Apache-2.0
 */
 
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.4;
+
+import "./Errors.sol";
 
 /// @title E2E Test
 contract E2ETest {
@@ -200,5 +202,38 @@ contract E2ETest {
         public
     {
         optional_item = _optional_item;
+    }
+
+    /// @notice Update 'revertTest'
+    /// @dev test write/read with same test
+    /// @param _revert_test_bool hoge
+    /// @param _revert_test_string fuga
+    /// @param err_flg occur error(1:assert,2:require,3:revert)
+    function revertTest(
+        bool          _revert_test_bool,
+        string memory _revert_test_string,
+        uint8 err_flg
+    )
+        public
+    {
+        if (err_flg == 1)  {
+            /// Return json schema string.
+            string memory revert_dict = string(bytes.concat(bytes("{\"err_code\":10, \"msg\":\""), bytes(_revert_test_string), bytes("\"}")));
+            revert(revert_dict);
+        } else if (err_flg == 2) {
+            /// Return custom error.
+            revert InsufficientBalance(0,0,_revert_test_string);
+        } else if (err_flg == 3) {
+            /// Return string with Require
+            revert(ErrorCode.ERR_001);
+        } else if (err_flg == 4) {
+            /// Return string with Require
+            require(false, ErrorCode.ERR_001);
+        } else if (err_flg == 4) {
+            /// Return ??
+            assert(false);
+        }
+        item2_bool = _revert_test_bool;
+        item2_string = _revert_test_string;
     }
 }

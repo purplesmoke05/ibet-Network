@@ -16,9 +16,16 @@ limitations under the License.
 
 SPDX-License-Identifier: Apache-2.0
 """
+import json
+from typing import Dict, Callable, Any
 from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from web3.datastructures import AttributeDict
+from web3.exceptions import ContractLogicError
+from web3.types import (
+    RPCEndpoint,
+    RPCResponse
+)
 
 from tests.config import (
     ZERO_ADDRESS,
@@ -368,8 +375,7 @@ class TestE2E:
     # Occur REVERT
     # assert error
     def test_error_1(self, contract):
-
-        err_flg = 1
+        err_flg = 3
         args = [
             False,
             "0x0123456789ABCDeF0123456789aBcdEF01234568",
@@ -392,14 +398,31 @@ class TestE2E:
             transaction_dict=tx,
             private_key=TestAccount.private_key
         )
-        tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction.hex())
-        txn_receipt = web3.eth.waitForTransactionReceipt(
-            transaction_hash=tx_hash,
-            timeout=10
-        )
+        try:
+            tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction.hex())
+            txn_receipt = web3.eth.waitForTransactionReceipt(
+                transaction_hash=tx_hash,
+            )
+            # Assertion
+            assert txn_receipt["status"] == 0
+            tx = web3.eth.getTransaction(tx_hash.hex())
 
-        # Assertion
-        assert txn_receipt["status"] == 0
+            # build a new transaction to replay:
+            replay_tx = {
+                'to': tx['to'],
+                'from': tx['from'],
+                'value': tx['value'],
+                'data': tx['input'],
+            }
+
+            # replay the transaction locally:
+            try:
+                web3.eth.call(replay_tx, tx.blockNumber - 1)
+            except Exception as e:
+                print(e)
+                # execution reverted: UniswapV2Router: INSUFFICIENT_OUTPUT_AMOUNT
+        except Exception as e:
+            print(e)
 
     # <Error_2>
     # Occur REVERT
@@ -474,3 +497,192 @@ class TestE2E:
 
         # Assertion
         assert txn_receipt["status"] == 0
+
+    # <Error_Ex1>
+    # Occur REVERT
+    # and parse json error message
+    def test_error_ex1(self, contract):
+        err_flg = 1
+        err_msg = "this must be reverted"
+        args = [
+            False,
+            err_msg,
+        ]
+        tx = contract.functions.revertTest(*args, err_flg).buildTransaction(
+            transaction={
+                "chainId": CHAIN_ID,
+                "from": TestAccount.address,
+                "gas": TX_GAS_LIMIT,
+                "gasPrice": 0
+            }
+        )
+        nonce = web3.eth.getTransactionCount(TestAccount.address)
+        tx["nonce"] = nonce
+        signed_tx = web3.eth.account.sign_transaction(
+            transaction_dict=tx,
+            private_key=TestAccount.private_key
+        )
+        tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction.hex())
+        txn_receipt = web3.eth.waitForTransactionReceipt(
+            transaction_hash=tx_hash,
+        )
+        # Assertion
+        assert txn_receipt["status"] == 0
+        msg_dict = inspect_tx_failure_json(tx_hash.hex())
+        assert msg_dict["msg"] == err_msg
+
+    # <Error_Ex2>
+    # Occur REVERT
+    # and parse json error message
+    def test_error_ex2(self, contract):
+        web3.middleware_onion.add(transaction_debug_middleware, "tx_debug")
+        err_flg = 2
+        err_msg = "this must be reverted"
+        args = [
+            False,
+            err_msg,
+        ]
+        tx = contract.functions.revertTest(*args, err_flg).buildTransaction(
+            transaction={
+                "chainId": CHAIN_ID,
+                "from": TestAccount.address,
+                "gas": TX_GAS_LIMIT,
+                "gasPrice": 0
+            }
+        )
+        nonce = web3.eth.getTransactionCount(TestAccount.address)
+        tx["nonce"] = nonce
+        signed_tx = web3.eth.account.sign_transaction(
+            transaction_dict=tx,
+            private_key=TestAccount.private_key
+        )
+        tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction.hex())
+        txn_receipt = web3.eth.waitForTransactionReceipt(
+            transaction_hash=tx_hash,
+        )
+
+        # Assertion
+        assert txn_receipt["status"] == 0
+        result = inspect_tx_failure_bytecode(tx_hash.hex())
+        assert result == "0x8e63a404000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000060000000000000000000000000000000000000000000000000000000000000001574686973206d7573742062652072657665727465640000000000000000000000"
+
+    # <Error_Ex3>
+    # Occur REVERT
+    # and parse json error message
+    def test_error_ex3(self, contract):
+        err_flg = 3
+        msg = "this must be reverted"
+        args = [
+            False,
+            msg,
+        ]
+        tx = contract.functions.revertTest(*args, err_flg).buildTransaction(
+            transaction={
+                "chainId": CHAIN_ID,
+                "from": TestAccount.address,
+                "gas": TX_GAS_LIMIT,
+                "gasPrice": 0
+            }
+        )
+        nonce = web3.eth.getTransactionCount(TestAccount.address)
+        tx["nonce"] = nonce
+        signed_tx = web3.eth.account.sign_transaction(
+            transaction_dict=tx,
+            private_key=TestAccount.private_key
+        )
+        tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction.hex())
+        txn_receipt = web3.eth.waitForTransactionReceipt(
+            transaction_hash=tx_hash,
+        )
+        # Assertion
+        assert txn_receipt["status"] == 0
+        result = inspect_tx_failure_string(tx_hash.hex())
+        assert result == "ERR_001"
+
+
+def inspect_tx_failure_bytecode(tx_hash: str) -> str:
+    tx = web3.eth.getTransaction(tx_hash)
+
+    # build a new transaction to replay:
+    replay_tx = {
+        'to': tx['to'],
+        'from': tx['from'],
+        'value': tx['value'],
+        'data': tx['input'],
+    }
+
+    # replay the transaction locally:
+    try:
+        web3.eth.call(replay_tx, tx.blockNumber - 1)
+    except ContractLogicError as e:
+        if e.args[0]:
+            # TODO: e.args[0]: 0x8e.....
+            #     It must be decoded with ABI, but Web3.py does not provide decoder.
+            msg = e.args[0]
+            return msg
+    except Exception as e:
+        raise e
+    raise Exception("Inspect transaction failure is failed. There is no message for message.")
+
+
+def inspect_tx_failure_string(tx_hash: str) -> str:
+    tx = web3.eth.getTransaction(tx_hash)
+
+    # build a new transaction to replay:
+    replay_tx = {
+        'to': tx['to'],
+        'from': tx['from'],
+        'value': tx['value'],
+        'data': tx['input'],
+    }
+
+    # replay the transaction locally:
+    try:
+        web3.eth.call(replay_tx, tx.blockNumber - 1)
+    except ContractLogicError as e:
+        if e.args[0]:
+            msg = e.args[0].split("execution reverted: ")[1]
+            return msg
+    except Exception as e:
+        raise e
+    raise Exception("Inspect transaction failure is failed. There is no message for message.")
+
+
+def inspect_tx_failure_json(tx_hash: str) -> Dict:
+    tx = web3.eth.getTransaction(tx_hash)
+
+    # build a new transaction to replay:
+    replay_tx = {
+        'to': tx['to'],
+        'from': tx['from'],
+        'value': tx['value'],
+        'data': tx['input'],
+    }
+
+    # replay the transaction locally:
+    try:
+        web3.eth.call(replay_tx, tx.blockNumber - 1)
+    except ContractLogicError as e:
+        if e.args[0]:
+            msg = e.args[0].split("execution reverted: ")[1]
+            return json.loads(msg)
+    except Exception as e:
+        raise e
+    raise Exception("Inspect transaction failure is failed. There is no message for message.")
+
+
+def transaction_debug_middleware(
+    make_request: Callable[[RPCEndpoint, Any], Any], w3: "Web3"
+) -> Callable[[RPCEndpoint, Any], RPCResponse]:
+    """
+    Debug transaction message middleware
+    """
+    def middleware(method: RPCEndpoint, params: Any) -> RPCResponse:
+        response = make_request(method, params)
+        if response and method is "eth_call":
+            if response["error"]["data"]:
+                # NOTE:
+                #   Insert HexBytes to msg field and then Exception contains HexBytes error msg from blockchain.
+                response['error']['message'] = response["error"]["data"]
+        return response
+    return middleware
