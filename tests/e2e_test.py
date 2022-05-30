@@ -533,7 +533,7 @@ class TestE2E:
 
     # <Error_Ex2>
     # Occur REVERT
-    # and parse json error message
+    # and parse error struct
     def test_error_ex2(self, contract):
         web3.middleware_onion.add(transaction_debug_middleware, "tx_debug")
         err_flg = 2
@@ -568,7 +568,7 @@ class TestE2E:
 
     # <Error_Ex3>
     # Occur REVERT
-    # and parse json error message
+    # and parse string error message
     def test_error_ex3(self, contract):
         err_flg = 3
         msg = "this must be reverted"
@@ -598,6 +598,38 @@ class TestE2E:
         assert txn_receipt["status"] == 0
         result = inspect_tx_failure_string(tx_hash.hex())
         assert result == "ERR_001"
+
+    # <Error_Ex4>
+    # Occur REVERT with modifier
+    # and parse string error message
+    def test_error_ex4(self, contract):
+        msg = "this must be reverted"
+        args = [
+            False,
+            msg,
+        ]
+        tx = contract.functions.revertTest(*args).buildTransaction(
+            transaction={
+                "chainId": CHAIN_ID,
+                "from": TestAccount.address,
+                "gas": TX_GAS_LIMIT,
+                "gasPrice": 0
+            }
+        )
+        nonce = web3.eth.getTransactionCount(TestAccount.address)
+        tx["nonce"] = nonce
+        signed_tx = web3.eth.account.sign_transaction(
+            transaction_dict=tx,
+            private_key=TestAccount.private_key
+        )
+        tx_hash = web3.eth.sendRawTransaction(signed_tx.rawTransaction.hex())
+        txn_receipt = web3.eth.waitForTransactionReceipt(
+            transaction_hash=tx_hash,
+        )
+        # Assertion
+        assert txn_receipt["status"] == 0
+        result = inspect_tx_failure_string(tx_hash.hex())
+        assert result == "ERR_501"
 
 
 def inspect_tx_failure_bytecode(tx_hash: str) -> str:
@@ -641,7 +673,9 @@ def inspect_tx_failure_string(tx_hash: str) -> str:
         web3.eth.call(replay_tx, tx.blockNumber - 1)
     except ContractLogicError as e:
         if e.args[0]:
-            msg = e.args[0].split("execution reverted: ")[1]
+            msg = ""
+            if len(e.args[0].split("execution reverted: ")) == 2:
+                msg = [1]
             return msg
     except Exception as e:
         raise e
@@ -681,8 +715,7 @@ def transaction_debug_middleware(
         response = make_request(method, params)
         if response and method is "eth_call":
             if response["error"]["data"]:
-                # NOTE:
-                #   Insert HexBytes to msg field and then Exception contains HexBytes error msg from blockchain.
+                # Insert HexBytes to msg field and then Exception contains HexBytes error msg from blockchain.
                 response['error']['message'] = response["error"]["data"]
         return response
     return middleware
