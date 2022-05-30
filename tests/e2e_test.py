@@ -675,7 +675,7 @@ def inspect_tx_failure_string(tx_hash: str) -> str:
         if e.args[0]:
             msg = ""
             if len(e.args[0].split("execution reverted: ")) == 2:
-                msg = [1]
+                msg = e.args[0].split("execution reverted: ")[1]
             return msg
     except Exception as e:
         raise e
@@ -713,7 +713,7 @@ def transaction_debug_middleware(
     """
     def middleware(method: RPCEndpoint, params: Any) -> RPCResponse:
         response = make_request(method, params)
-        if response and method is "eth_call":
+        if response and method == "eth_call":
             if response["error"]["data"]:
                 # Insert HexBytes to msg field and then Exception contains HexBytes error msg from blockchain.
                 response['error']['message'] = response["error"]["data"]
